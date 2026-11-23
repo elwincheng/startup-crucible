@@ -54,9 +54,12 @@ const voices = () => speechSynthesis.getVoices().filter(x => x.lang.startsWith('
 function speak(name, text) {
   return new Promise(res => {
     const a = avatars[name]; a.bub.textContent = text; a.bub.classList.add('on'); a.speaking = Math.max(2.5, text.length / 15);
-    const u = new SpeechSynthesisUtterance(text); const vs = voices(); if (vs.length) u.voice = vs[names.indexOf(name) % vs.length];
-    u.pitch = PITCH[name]; u.rate = 1.1; u.onend = () => { a.bub.classList.remove('on'); res(); }; u.onerror = () => setTimeout(() => { a.bub.classList.remove('on'); res(); }, 2500);
-    speechSynthesis.speak(u);
+    let done = false; const finish = () => { if (done) return; done = true; a.bub.classList.remove('on'); res(); };
+    setTimeout(finish, Math.max(3000, text.length * 90)); // Chrome sometimes never fires onend
+    try {
+      const u = new SpeechSynthesisUtterance(text); const vs = voices(); if (vs.length) u.voice = vs[names.indexOf(name) % vs.length];
+      u.pitch = PITCH[name]; u.rate = 1.1; u.onend = finish; u.onerror = finish; speechSynthesis.speak(u);
+    } catch { /* silent fallback: bubble timeout above */ }
   });
 }
 function logEntry(html, cls = '') { const d = document.createElement('div'); d.className = 'e ' + cls; d.innerHTML = html; $('log').appendChild(d); $('log').scrollTop = 1e9; }
@@ -65,17 +68,23 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': 
 async function api(path, body) { const r = await fetch('/api/' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }); return r.json(); }
 
 async function say() {
-  const text = $('in').value.trim(); if (!text || busy) return; busy = true; $('in').value = '';
-  turn++; $('t').textContent = turn; history.push('Founder: ' + text);
-  logEntry(`<b>You</b>${esc(text)}`);
-  const { results } = await api('turn', { session_id, turn, transcript: history.join('\n'), founder: text });
-  for (const r of results) { // react simultaneously, then speak in turn
-    const a = avatars[r.agent]; a.stance = r.stance; a.targetY = STANCE_Y[r.stance] ?? 0;
-    events.push({ ...r, turn, founder_quote: text });
-    logEntry(`<b>${r.agent} → ${esc(r.stance)} (${r.score}/10, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
-  }
-  for (const r of results) { history.push(`${r.agent}: ${r.reply}`); await speak(r.agent, r.reply); }
-  busy = false; if (turn >= 6) verdict();
+  const text = $('in').value.trim(); if (!text) return;
+  if (busy) { logEntry('<b>Panel is still responding…</b>'); return; }
+  busy = true; $('in').value = '';
+  try {
+    turn++; $('t').textContent = turn; history.push('Founder: ' + text);
+    logEntry(`<b>You</b>${esc(text)}`);
+    const { results, error } = await api('turn', { session_id, turn, transcript: history.join('\n'), founder: text });
+    if (!results) { turn--; $('t').textContent = turn; history.pop(); throw new Error(error || 'server returned no results'); }
+    for (const r of results) { // react simultaneously, then speak in turn
+      const a = avatars[r.agent]; if (a) { a.stance = r.stance; a.targetY = STANCE_Y[r.stance] ?? 0; }
+      events.push({ ...r, turn, founder_quote: text });
+      logEntry(`<b>${r.agent} → ${esc(r.stance)} (${r.score}/10, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
+    }
+    for (const r of results) { history.push(`${r.agent}: ${r.reply}`); await speak(r.agent, r.reply); }
+  } catch (e) { logEntry(`<b>Error</b>${esc(e.message || e)}`); }
+  finally { busy = false; $('in').focus(); }
+  if (turn >= 6) verdict();
 }
 
 async function verdict() {
@@ -92,7 +101,10 @@ async function verdict() {
   $('vbody').innerHTML = h + '<button onclick="location.reload()">New session</button>'; $('verdict').style.display = 'flex';
 }
 
-const start = await api('start');
-names = start.agents; names.forEach((n, i) => addAgent(n, i, names.length));
-start.memory.forEach(m => logEntry(`<b>Memory (Bruin)</b>Past weak spot: ${esc(m.topic)} avg ${m.avg}/10 — “${esc(m.quote)}”. Panel will press here.`, 'mem'));
-$('go').onclick = say; $('end').onclick = verdict; $('in').onkeydown = (e) => e.key === 'Enter' && say();
+$('go').onclick = say; $('end').onclick = verdict; $('in').addEventListener('keydown', (e) => { if (e.key === 'Enter') say(); });
+$('in').focus();
+try {
+  const start = await api('start');
+  names = start.agents; names.forEach((n, i) => addAgent(n, i, names.length));
+  start.memory.forEach(m => logEntry(`<b>Memory (Bruin)</b>Past weak spot: ${esc(m.topic)} avg ${m.avg}/10 — “${esc(m.quote)}”. Panel will press here.`, 'mem'));
+} catch (e) { logEntry(`<b>Startup error</b>${esc(e.message || e)}`); }
