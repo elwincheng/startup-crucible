@@ -14,12 +14,12 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x223, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(3, 8, 5); scene.add(sun);
 const table = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 0.15, 48), new THREE.MeshStandardMaterial({ color: 0x4a3626 }));
 table.position.y = 0.8; scene.add(table);
-scene.add(Object.assign(new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0x151922 })), { rotation: new THREE.Euler(-Math.PI / 2, 0, 0) }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0x151922 }));
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
 
 const avatars = {};
 function addAgent(name, i, n) {
-  const a = Math.PI + (i - (n - 1) / 2) * 0.8; // arc facing camera... back side of table
-  const g = new THREE.Group(); g.position.set(Math.sin(a) * 3, 0, Math.cos(a) * 3 - 0.5 - 1.5);
+  const g = new THREE.Group();
   g.position.set((i - (n - 1) / 2) * 2.1, 0, -2.6 + Math.abs(i - (n - 1) / 2) * 0.5);
   const mat = new THREE.MeshStandardMaterial({ color: COLORS[name] });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.8, 8, 16), mat); body.position.y = 0.9;

@@ -1,10 +1,11 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import Anthropic from '@anthropic-ai/sdk';
 
-const MODEL = 'claude-sonnet-5-5';
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+// Google AI Studio (Gemini). Get a key at aistudio.google.com/apikey
+const KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const client = KEY ? true : null;
 
 export const AGENTS = {
   Contrarian: 'a monopoly-obsessed strategist. Demands a 10x secret, a defensible moat, and a path to a monopoly. Hates competition and incrementalism.',
@@ -34,14 +35,26 @@ async function agentTurn(name, transcript, founder, mem) {
     const score = 3 + Math.floor(Math.random() * 6);
     return { agent: name, reply: `(${name}) Be more specific about that.`, topic: TOPICS[Math.floor(Math.random() * 6)], stance: score > 5 ? 'warming' : 'skeptical', score, reason: 'offline mock' };
   }
-  const r = await client.messages.create({
-    model: MODEL, max_tokens: 400,
-    system: `You are ${name}, ${AGENTS[name]} You sit on a startup investor panel. Never claim to be a real person. ${memLine}
-Reply ONLY with JSON: {"reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":0-10 rating of the founder's latest answer,"reason":"one sentence citing what the founder said"}`,
-    messages: [{ role: 'user', content: `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"` }],
-  });
-  const text = r.content.find(b => b.type === 'text')?.text ?? '{}';
-  const j = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+  const system = `You are ${name}, ${AGENTS[name]} You sit on a startup investor panel. Never claim to be a real person. ${memLine}
+Reply ONLY with JSON: {"reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":0-10 rating of the founder's latest answer,"reason":"one sentence citing what the founder said"}`;
+  const payload = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: [{ text: `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"` }] }],
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 400, thinkingConfig: { thinkingBudget: 0 } },
+  };
+  let j;
+  for (let attempt = 0; attempt < 2 && !j; attempt++) { // one retry on bad JSON / transient error
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': KEY }, body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || r.status);
+      const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '{}';
+      j = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+    } catch (e) { console.error(`${name} attempt ${attempt + 1}:`, String(e)); }
+  }
+  if (!j) j = { reply: "I'm not convinced. Say more.", topic: 'vision', stance: 'neutral', score: 5, reason: 'model call failed' };
   return { agent: name, ...j, score: Number(j.score) };
 }
 
@@ -61,4 +74,4 @@ http.createServer(async (req, res) => {
     if (req.url === '/api/finish') { refreshBruin(); return send(res, { memory: memory() }); }
     send(res, { error: 'not found' }, 404);
   } catch (e) { send(res, { error: String(e) }, 500); }
-}).listen(8787, () => console.log('api on :8787', client ? '(live)' : '(offline mock — set ANTHROPIC_API_KEY)'));
+}).listen(8787, () => console.log('api on :8787', client ? '(live)' : '(offline mock — set GEMINI_API_KEY)'));
