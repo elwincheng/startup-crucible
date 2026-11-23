@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Startup Crucible</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0d12;color:#e8e8ee;font:14px system-ui;overflow:hidden}
+#c{position:fixed;inset:0}
+#log{position:fixed;right:0;top:0;bottom:0;width:340px;background:#12151cee;padding:12px;overflow:auto;border-left:1px solid #2a2f3a}
+#log h3{margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#8a93a6}
+.e{margin-bottom:8px;padding:8px;border-radius:6px;background:#1a1e28;font-size:12px;line-height:1.4}
+.e b{display:block}.mem{background:#2a2310}
+#bar{position:fixed;left:16px;right:356px;bottom:16px;display:flex;gap:8px}
+#in{flex:1;padding:12px;border-radius:8px;border:1px solid #333a48;background:#12151c;color:#fff;font-size:15px}
+button{padding:12px 16px;border-radius:8px;border:0;background:#5b8cff;color:#fff;font-weight:600;cursor:pointer}
+button.alt{background:#2a2f3a}
+#hud{position:fixed;left:16px;top:16px;font-size:13px;color:#aab}
+.bub{position:fixed;max-width:240px;padding:8px 10px;border-radius:10px;background:#fff;color:#111;font-size:12px;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .2s}
+.bub.on{opacity:1}
+#verdict{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center}
+#verdict>div{background:#12151c;padding:24px;border-radius:12px;max-width:640px;max-height:80vh;overflow:auto}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud">Pitch your startup idea (or type "idea" for one). Turn <span id="t">0</span>/6</div>
+<div id="log"><h3>Decision log</h3></div>
+<div id="bar"><input id="in" placeholder="Your pitch / answer…" autofocus><button id="go">Say</button><button id="end" class="alt">End & verdict</button></div>
+<div id="verdict"><div id="vbody"></div></div>
+<script type="module" src="/main.js"></script></body></html>
