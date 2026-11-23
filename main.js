@@ -28,7 +28,7 @@ function addAgent(name, i, n) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.02; ring.visible = false;
   g.add(body, head, arm, ring); g.lookAt(0, 0, 3); scene.add(g);
   const bub = document.createElement('div'); bub.className = 'bub'; document.body.appendChild(bub);
-  avatars[name] = { g, body, head, arm, ring, bub, speaking: 0, targetY: 0, stance: 'neutral', t: Math.random() * 6 };
+  avatars[name] = { g, body, head, arm, ring, bub, speaking: 0, targetY: 0, home: g.position.clone(), homeRot: g.rotation.y, target: g.position.clone(), targetRot: g.rotation.y, stance: 'neutral', t: Math.random() * 6 };
 }
 let names = [];
 
@@ -41,6 +41,8 @@ const v = new THREE.Vector3();
   for (const a of Object.values(avatars)) {
     a.t += 0.02;
     const bob = a.speaking > 0 ? Math.sin(a.t * 12) * 0.05 : Math.sin(a.t) * 0.01;
+    a.g.position.x += (a.target.x - a.g.position.x) * 0.05; a.g.position.z += (a.target.z - a.g.position.z) * 0.05; // walk to/from the pitch spot
+    a.g.rotation.y += (a.targetRot - a.g.rotation.y) * 0.06;
     a.g.position.y += (a.targetY - a.g.position.y) * 0.08; // stance: sink when skeptical, rise when sold
     a.head.position.y = 1.9 + bob; a.arm.rotation.z = a.speaking > 0 ? 0.3 + Math.sin(a.t * 10) * 0.8 : 0.3;
     a.head.rotation.z = a.stance === 'skeptical' ? 0.3 : 0; a.ring.visible = a.speaking > 0; a.speaking = Math.max(0, a.speaking - 0.016);
@@ -67,10 +69,31 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': 
 
 async function api(path, body) { const r = await fetch('/api/' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }); return r.json(); }
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+let lastProposer = null;
+async function pitchIdea() {
+  logEntry('<b>You</b>idea');
+  const { proposer, idea, debate, error } = await api('idea', { transcript: history.join('\n'), last: lastProposer });
+  if (!idea) throw new Error(error || 'no idea returned');
+  lastProposer = proposer; const p = avatars[proposer];
+  logEntry(`<b>${proposer} proposes: ${esc(idea.title)}</b>${esc(idea.pitch)}`, 'mem');
+  history.push(`${proposer} pitched the idea "${idea.title}": ${idea.pitch}`);
+  p.target.set(0, 0, 3.4); p.targetRot = Math.PI; await sleep(1500); // walk out in front of the table, face the panel
+  await speak(proposer, idea.pitch);
+  for (const r of debate) {
+    const a = avatars[r.agent]; a.stance = r.stance; a.targetY = STANCE_Y[r.stance] ?? 0;
+    logEntry(`<b>${r.agent} on ${proposer}'s idea → ${esc(r.stance)} (${r.score}/10 fundable, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
+    history.push(`${r.agent}: ${r.reply}`); await speak(r.agent, r.reply);
+  }
+  p.target.copy(p.home); p.targetRot = p.homeRot;
+  logEntry('<b>Your turn</b>Defend, reshape, or pivot the idea. Type "idea" for a different one.');
+}
+
 async function say() {
   const text = $('in').value.trim(); if (!text) return;
   if (busy) { logEntry('<b>Panel is still responding…</b>'); return; }
   busy = true; $('in').value = '';
+  if (/^\/?idea\b/i.test(text)) { try { await pitchIdea(); } catch (e) { logEntry(`<b>Error</b>${esc(e.message || e)}`); } finally { busy = false; $('in').focus(); } return; }
   try {
     turn++; $('t').textContent = turn; history.push('Founder: ' + text);
     logEntry(`<b>You</b>${esc(text)}`);
