@@ -12,8 +12,30 @@ export const AGENTS = {
   Purist: 'a user-pull purist. Cares only about real users, retention, and whether the founder has talked to customers. Hates hypotheticals.',
   Scaler: 'a bold, thesis-driven big-bet investor. Asks about market size, technical risk, and whether this changes the world. Pushes for ambition.',
   Operator: 'a pragmatic operator. Asks about unit economics, go-to-market, hiring, and what happens in the next 90 days.',
+  Hacker: 'a technical founder who builds things. Hates hand-waving, asks what is technically hard, why now, and what the founder can ship this weekend.',
+  Bootstrapper: 'a frugal, revenue-first founder who built a profitable company without VC. Distrusts fundraising, asks how soon the first dollar arrives and why this needs outside money at all.',
+  Impact: 'an impact investor focused on societal problems. Asks who is helped and who might be harmed, whether the problem is real at scale, and how impact is measured.',
+  Distributor: 'a growth and distribution expert. Believes distribution beats product. Asks how the first 1,000 customers are found, what the acquisition cost is, and whether there is a built-in loop.',
 };
-const TOPICS = ['moat', 'users', 'market', 'economics', 'team', 'vision'];
+// UI metadata for the archetype picker.
+export const META = {
+  Contrarian: { title: 'The Monopolist Strategist', kind: 'Investor', blurb: 'Wants a 10x secret and a moat. Hates competition.' },
+  Purist: { title: 'The User-Pull Purist', kind: 'Investor', blurb: 'Only cares about real users and retention.' },
+  Scaler: { title: 'The Big-Bet Thesis Investor', kind: 'Investor', blurb: 'Pushes for ambition, market size and world-changing scale.' },
+  Operator: { title: 'The Pragmatic Operator', kind: 'Investor', blurb: 'Unit economics, go-to-market, and the next 90 days.' },
+  Impact: { title: 'The Impact Investor', kind: 'Investor', blurb: 'Who is helped, who is harmed, and how is it measured?' },
+  Hacker: { title: 'The Technical Founder', kind: 'Founder', blurb: 'Hates hand-waving. What is technically hard? Why now?' },
+  Bootstrapper: { title: 'The Bootstrapper', kind: 'Founder', blurb: 'Revenue first. Why does this even need outside money?' },
+  Distributor: { title: 'The Growth Founder', kind: 'Founder', blurb: 'Distribution beats product. Where do customer #1 to #1000 come from?' },
+};
+const DEFAULT_PANEL = ['Contrarian', 'Purist', 'Scaler', 'Operator'];
+const TOPICS = ['moat', 'users', 'market', 'economics', 'team', 'vision', 'technology', 'distribution', 'impact'];
+const MIN_PANEL = 3, MAX_PANEL = 5;
+function panelOf(agents) {
+  const list = [...new Set(Array.isArray(agents) && agents.length ? agents : DEFAULT_PANEL)].filter(n => AGENTS[n]);
+  if (list.length < MIN_PANEL || list.length > MAX_PANEL) throw new Error(`pick ${MIN_PANEL} to ${MAX_PANEL} archetypes`);
+  return list;
+}
 
 // Bruin-produced cross-session memory (analytics.founder_weak_spots).
 function memory() {
@@ -54,7 +76,6 @@ async function discoverModels() {
 }
 discoverModels();
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const names = Object.keys(AGENTS);
 
 // Shared Gemini caller: walks the model chain with backoff. `parse` turns the raw text into a validated value or throws.
 async function gemini(system, user, parse, maxOutputTokens = 2048) {
@@ -85,34 +106,34 @@ async function gemini(system, user, parse, maxOutputTokens = 2048) {
   return { ok: false, error: lastErr };
 }
 const memText = (mem) => mem.length ? `Memory from past sessions (press on these): ${mem.map(m => `${m.topic} (avg ${m.avg}/10, e.g. "${m.quote}")`).join('; ')}.` : '';
-const roster = () => names.map(n => `- ${n}: ${AGENTS[n]}`).join('\n');
+const roster = (list) => list.map(n => `- ${n}: ${AGENTS[n]}`).join('\n');
 const cut = (t, open, close) => JSON.parse(t.slice(t.indexOf(open), t.lastIndexOf(close) + 1));
 
 // One call per turn returns all four reactions to the founder.
-async function panelTurn(transcript, founder, mem) {
-  if (!client) return { ok: true, results: names.map(agent => { const score = 3 + Math.floor(Math.random() * 6);
-    return { agent, reply: `(${agent}) Be more specific about that.`, topic: TOPICS[Math.floor(Math.random() * 6)], stance: score > 5 ? 'warming' : 'skeptical', score, reason: 'offline mock' }; }) };
-  const system = `You play a startup investor panel of ${names.length} distinct characters. Never claim to be a real person.
-${roster()}
+async function panelTurn(list, transcript, founder, mem) {
+  if (!client) return { ok: true, results: list.map(agent => { const score = 3 + Math.floor(Math.random() * 6);
+    return { agent, reply: `(${agent}) Be more specific about that.`, topic: TOPICS[Math.floor(Math.random() * TOPICS.length)], stance: score > 5 ? 'warming' : 'skeptical', score, reason: 'offline mock' }; }) };
+  const system = `You play a startup investor panel of ${list.length} distinct characters. Never claim to be a real person.
+${roster(list)}
 ${memText(mem)}
-Each character reacts to the founder's latest message in their own voice, and may reference what another panelist said. Reply ONLY with a JSON array of ${names.length} objects, one per character in this order: ${names.join(', ')}.
+Each character reacts to the founder's latest message in their own voice, and may reference what another panelist said. Reply ONLY with a JSON array of ${list.length} objects, one per character in this order: ${list.join(', ')}.
 Each object: {"agent":"<name>","reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 rating of the founder's latest answer>,"reason":"one sentence citing what the founder said"}`;
   const out = await gemini(system, `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"`, (t) => {
     const arr = cut(t, '[', ']');
-    const results = names.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
-    if (results.length !== names.length) throw new Error('incomplete panel response');
+    const results = list.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
+    if (results.length !== list.length) throw new Error('incomplete panel response');
     return results;
   });
   return out.ok ? { ok: true, results: out.value } : out;
 }
 
 // "idea": one panelist pitches an idea / societal problem fitting their persona; the other three debate it.
-async function ideaTurn(transcript, mem, proposer) {
-  const others = names.filter(n => n !== proposer);
+async function ideaTurn(list, transcript, mem, proposer) {
+  const others = list.filter(n => n !== proposer);
   if (!client) return { ok: true, proposer, idea: { title: 'Offline idea', pitch: `(${proposer}) An idea would go here.` },
     debate: others.map(agent => ({ agent, reply: `(${agent}) I disagree.`, topic: 'vision', stance: 'neutral', score: 5, reason: 'offline mock' })) };
   const system = `You play a startup investor panel. Never claim to be a real person.
-${roster()}
+${roster(list)}
 ${memText(mem)}
 ${proposer} must pitch ONE startup idea or societal problem worth solving that reflects their worldview (not generic). Then ${others.join(', ')} debate it IN THAT ORDER, each reacting to ${proposer} and to the panelist who spoke just before, disagreeing where their persona would. Don't repeat ideas already in the transcript.
 Reply ONLY with JSON: {"title":"<=6 words","pitch":"2 sentences, spoken by ${proposer} in first person","debate":[{"agent":"<name>","reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 how fundable this idea is>,"reason":"one sentence on why, citing the pitch"}]}
@@ -131,11 +152,12 @@ const send = (res, o, c = 200) => { res.writeHead(c, { 'content-type': 'applicat
 
 http.createServer(async (req, res) => {
   try {
-    if (req.url === '/api/start') return send(res, { agents: Object.keys(AGENTS), memory: memory() });
+    if (req.url === '/api/start') return send(res, { agents: Object.keys(AGENTS), roster: Object.entries(META).map(([name, m]) => ({ name, ...m })), min: MIN_PANEL, max: MAX_PANEL, defaults: DEFAULT_PANEL, memory: memory() });
     if (req.url === '/api/turn') {
-      const { session_id, turn, transcript, founder } = await body(req);
+      const { session_id, turn, transcript, founder, agents } = await body(req);
+      const list = panelOf(agents);
       const mem = memory();
-      const out = await panelTurn(transcript, founder, mem);
+      const out = await panelTurn(list, transcript, founder, mem);
       if (!out.ok) return send(res, { error: `The panel could not respond (${out.error}). Try again in a moment.` }, 503);
       const { results } = out; // only real model output reaches the Bruin event log
       for (const r of results) log({ session_id, ts: new Date().toISOString().replace('T', ' ').slice(0, 19), turn, agent: r.agent, topic: r.topic, stance: r.stance, score: r.score, founder_quote: founder, reason: r.reason });
@@ -149,9 +171,10 @@ http.createServer(async (req, res) => {
     if (req.url === '/api/session/save') { const { session } = await body(req); fs.writeFileSync(sid(session.id), JSON.stringify(session)); return send(res, { ok: true }); }
     if (req.url === '/api/session/delete') { const { id } = await body(req); try { fs.unlinkSync(sid(id)); } catch {} return send(res, { ok: true }); }
     if (req.url === '/api/idea') {
-      const { transcript, last } = await body(req);
-      const pool = names.filter(n => n !== last); // don't let the same panelist pitch twice in a row
-      const out = await ideaTurn(transcript, memory(), pool[Math.floor(Math.random() * pool.length)]);
+      const { transcript, last, agents } = await body(req);
+      const list = panelOf(agents);
+      const pool = list.filter(n => n !== last); // don't let the same panelist pitch twice in a row
+      const out = await ideaTurn(list, transcript, memory(), pool[Math.floor(Math.random() * pool.length)]);
       if (!out.ok) return send(res, { error: `The panel could not come up with an idea (${out.error}). Try again in a moment.` }, 503);
       return send(res, out); // idea debate is the panel's, not the founder's: it is not written to the Bruin event log
     }
