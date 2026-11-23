@@ -26,6 +26,13 @@ function memory() {
   } catch { return []; }
 }
 
+// --- Saved boardroom sessions: one JSON file per session in data/sessions/ ---
+const SDIR = 'data/sessions';
+fs.mkdirSync(SDIR, { recursive: true });
+const sid = (id) => { if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(id))) throw new Error('bad session id'); return `${SDIR}/${id}.json`; };
+const readSession = (id) => { try { return JSON.parse(fs.readFileSync(sid(id), 'utf8')); } catch { return null; } };
+const summary = (x) => ({ id: x.id, title: x.title, created: x.created, updated: x.updated, turn: x.turn, finished: !!x.verdictHtml, funded: x.funded, score: x.score });
+
 const log = (e) => fs.appendFileSync('data/events.jsonl', JSON.stringify(e) + '\n');
 const refreshBruin = () => { try { execFileSync('bruin', ['run', 'my-pipeline'], { timeout: 20000 }); } catch {} };
 
@@ -134,6 +141,13 @@ http.createServer(async (req, res) => {
       for (const r of results) log({ session_id, ts: new Date().toISOString().replace('T', ' ').slice(0, 19), turn, agent: r.agent, topic: r.topic, stance: r.stance, score: r.score, founder_quote: founder, reason: r.reason });
       return send(res, { results });
     }
+    if (req.url === '/api/sessions') {
+      const list = fs.readdirSync(SDIR).filter(f => f.endsWith('.json')).map(f => { try { return summary(JSON.parse(fs.readFileSync(`${SDIR}/${f}`, 'utf8'))); } catch { return null; } }).filter(Boolean);
+      return send(res, { sessions: list.sort((a, b) => b.updated - a.updated) });
+    }
+    if (req.url === '/api/session/get') { const { id } = await body(req); const x = readSession(id); return x ? send(res, { session: x }) : send(res, { error: 'not found' }, 404); }
+    if (req.url === '/api/session/save') { const { session } = await body(req); fs.writeFileSync(sid(session.id), JSON.stringify(session)); return send(res, { ok: true }); }
+    if (req.url === '/api/session/delete') { const { id } = await body(req); try { fs.unlinkSync(sid(id)); } catch {} return send(res, { ok: true }); }
     if (req.url === '/api/idea') {
       const { transcript, last } = await body(req);
       const pool = names.filter(n => n !== last); // don't let the same panelist pitch twice in a row
@@ -144,4 +158,4 @@ http.createServer(async (req, res) => {
     if (req.url === '/api/finish') { refreshBruin(); return send(res, { memory: memory() }); }
     send(res, { error: 'not found' }, 404);
   } catch (e) { send(res, { error: String(e) }, 500); }
-}).listen(8787, () => console.log('api on :8787', client ? '(live)' : '(offline mock — set GEMINI_API_KEY)'));
+}).listen(process.env.PORT || 8787, () => console.log('api on :' + (process.env.PORT || 8787), client ? '(live)' : '(offline mock — set GEMINI_API_KEY)'));

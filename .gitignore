@@ -9,3 +9,4 @@ logs/queries
 dist/
 node_modules/
 dist/
+data/sessions/
