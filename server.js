@@ -171,7 +171,12 @@ const RUBRIC = `Scoring scale for the founder's latest answer (0-10). Be skeptic
 0-2 = no evidence, or dodges the question. 3-4 = plausible claim, unproven. 5-6 = competent, with some concrete evidence. 7-8 = strong and specific, backed by real data, users or traction. 9-10 = exceptional, give rarely.
 Judge through YOUR persona's lens: an answer that is solid in your lens deserves 6 or more even if you still have follow-up questions. Keep stance consistent with the score: skeptical = 0-4, neutral = 5, warming = 6-7, sold = 8-10.`;
 const memText = (mem) => mem.length ? `Memory from past sessions (press on these): ${mem.map(m => `${m.topic} (avg ${m.avg}/10, e.g. "${m.quote}")`).join('; ')}.` : '';
-const roster = (list) => list.map(n => `- ${n}: ${AGENTS[n]}`).join('\n');
+const T = (n) => META[n].title; // what the user sees on the nameplate; the model must speak in these terms, never the internal ids
+const roster = (list) => list.map(n => `- ${T(n)} (id: ${n}): ${AGENTS[n]}`).join('\n');
+const NAMING = `Panelists appear by TITLE in the transcript. When you mention another panelist, use their title (e.g. "the Big-Bet Investor"), never their id. Never announce, explain or label your own archetype or title; just speak naturally in character. The id is only for the JSON "agent" field.`;
+// Safety net: if a model still blurts an internal codename, swap in the visible title.
+const LEAK = { Scaler: 'Big-Bet Investor', Contrarian: 'Monopolist Strategist', Distributor: 'Growth Founder' };
+const deleak = (t) => typeof t === 'string' ? t.replace(/\b(Scaler|Contrarian|Distributor)\b/g, m => LEAK[m]) : t;
 const cut = (t, open, close) => JSON.parse(t.slice(t.indexOf(open), t.lastIndexOf(close) + 1));
 
 // One call per turn returns all four reactions to the founder.
@@ -182,11 +187,12 @@ async function panelTurn(list, transcript, founder, mem, who = list) { // who: p
 ${roster(list)}
 ${memText(mem)}
 ${RUBRIC}
-Each replying character reacts to the founder's latest message in their own voice, and may reference what another panelist said.${who.length < list.length ? ` Only ${who.join(', ')} reply; the other panelists stay silent. If the founder addressed someone directly, answer as that person.` : ''} Reply ONLY with a JSON array of ${who.length} objects, one per character in this order: ${who.join(', ')}.
+${NAMING}
+Each replying character reacts to the founder's latest message in their own voice, and may reference what another panelist said.${who.length < list.length ? ` Only ${who.map(T).join(', ')} reply; the other panelists stay silent. If the founder addressed someone directly, answer as that person.` : ''} Reply ONLY with a JSON array of ${who.length} objects, one per character in this order (use the id in the agent field): ${who.join(', ')}.
 Each object: {"agent":"<name>","reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 rating of the founder's latest answer>,"reason":"one sentence citing what the founder said"}`;
   const out = await gemini(system, `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"`, (t) => {
     const arr = cut(t, '[', ']');
-    const results = who.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
+    const results = who.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, reply: deleak(x.reply), reason: deleak(x.reason), score: Number(x.score) }));
     if (results.length !== who.length) throw new Error('incomplete panel response');
     return results;
   });
@@ -196,13 +202,14 @@ Each object: {"agent":"<name>","reply":"<=2 sentences, in character, challenge a
 // Click-to-speak with an empty input: one panelist interrupts unprompted (unscored, not a founder turn).
 async function jumpIn(list, transcript, agent, mem) {
   if (!client) return { ok: true, reply: `(${agent}) Let me jump in here.`, topic: 'vision', stance: 'neutral', reason: 'offline mock' };
-  const system = `You play ${agent}, ${AGENTS[agent]} You sit on a startup investor panel with:
+  const system = `You play the ${T(agent)}, ${AGENTS[agent]} You sit on a startup investor panel with:
 ${roster(list)}
 ${memText(mem)}
+${NAMING}
 You take the floor unprompted: challenge a specific claim from the transcript, or push back on another panelist, in your own voice. If nobody has spoken yet, ask the founder to pitch. Never claim to be a real person.
 Reply ONLY with JSON: {"reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","reason":"one sentence on what prompted you, citing the transcript"}`;
   const out = await gemini(system, `Transcript so far:\n${transcript || '(nobody has spoken yet)'}`, (t) => {
-    const j = cut(t, '{', '}'); if (!j.reply) throw new Error('empty reply'); return j;
+    const j = cut(t, '{', '}'); if (!j.reply) throw new Error('empty reply'); return { ...j, reply: deleak(j.reply), reason: deleak(j.reason) };
   }, 1024);
   return out.ok ? { ok: true, ...out.value } : out;
 }
@@ -215,14 +222,14 @@ async function ideaTurn(list, transcript, mem, proposer) {
   const system = `You play a startup investor panel. Never claim to be a real person.
 ${roster(list)}
 ${memText(mem)}
-${proposer} must pitch ONE startup idea or societal problem worth solving that reflects their worldview (not generic). Then ${others.join(', ')} debate it IN THAT ORDER, each reacting to ${proposer} and to the panelist who spoke just before, disagreeing where their persona would. Don't repeat ideas already in the transcript. For each debater's score (how fundable the idea is, 0-10): 0-2 = not fundable, 3-4 = weak, 5-6 = interesting but unproven, 7-8 = would take a meeting or invest, 9-10 = rare; judge through your own persona's lens and keep stance consistent with the score (skeptical 0-4, neutral 5, warming 6-7, sold 8-10).
-Reply ONLY with JSON: {"title":"<=6 words","pitch":"2 sentences, spoken by ${proposer} in first person","debate":[{"agent":"<name>","reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 how fundable this idea is>,"reason":"one sentence on why, citing the pitch"}]}
-The debate array must have exactly ${others.length} entries in order: ${others.join(', ')}.`;
+The ${T(proposer)} (id: ${proposer}) must pitch ONE startup idea or societal problem worth solving that reflects their worldview (not generic). Then ${others.map(T).join(', ')} debate it IN THAT ORDER, each reacting to the ${T(proposer)} and to the panelist who spoke just before, disagreeing where their persona would. Don't repeat ideas already in the transcript. For each debater's score (how fundable the idea is, 0-10): 0-2 = not fundable, 3-4 = weak, 5-6 = interesting but unproven, 7-8 = would take a meeting or invest, 9-10 = rare; judge through your own persona's lens and keep stance consistent with the score (skeptical 0-4, neutral 5, warming 6-7, sold 8-10).
+Reply ONLY with JSON: {"title":"<=6 words","pitch":"2 sentences, spoken by the ${T(proposer)} in first person","debate":[{"agent":"<name>","reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 how fundable this idea is>,"reason":"one sentence on why, citing the pitch"}]}
+The debate array must have exactly ${others.length} entries in order (use the id in the agent field): ${others.join(', ')}.\n${NAMING}`;
   const out = await gemini(system, `Transcript so far:\n${transcript || '(empty)'}`, (t) => {
     const j = cut(t, '{', '}');
     const debate = others.map(agent => (j.debate || []).find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
     if (!j.title || !j.pitch || debate.length !== others.length) throw new Error('incomplete idea response');
-    return { proposer, idea: { title: j.title, pitch: j.pitch }, debate };
+    return { proposer, idea: { title: deleak(j.title), pitch: deleak(j.pitch) }, debate: debate.map(x => ({ ...x, reply: deleak(x.reply), reason: deleak(x.reason) })) };
   }, 3072);
   return out.ok ? { ok: true, ...out.value } : out;
 }
@@ -232,7 +239,7 @@ const send = (res, o, c = 200) => { res.writeHead(c, { 'content-type': 'applicat
 
 http.createServer(async (req, res) => {
   try {
-    if (req.url === '/api/start') return send(res, { agents: Object.keys(AGENTS), roster: Object.entries(META).map(([name, m]) => ({ name, ...m })), min: MIN_PANEL, max: MAX_PANEL, defaults: DEFAULT_PANEL, memory: memory() });
+    if (req.url === '/api/start') return send(res, { agents: Object.keys(AGENTS), roster: Object.entries(META).map(([name, m]) => ({ name, ...m })), min: MIN_PANEL, max: MAX_PANEL, defaults: DEFAULT_PANEL, live: !!client, memory: memory() });
     if (req.url === '/api/turn') {
       const { session_id, turn, transcript, founder, agents, responders } = await body(req);
       const list = panelOf(agents);

@@ -4,6 +4,7 @@ const COLORS = { Contrarian: 0xc0392b, Purist: 0x27ae60, Scaler: 0x8e44ad, Opera
 const hex = (n) => '#' + COLORS[n].toString(16).padStart(6, '0');
 const shortTitle = (n) => (ROSTER.find(r => r.name === n)?.title || n).replace(/^The /, '');
 const PLATE = { Contrarian: 'Monopolist', Purist: 'Purist', Scaler: 'Big-Bet Investor', Operator: 'Operator', Hacker: 'Tech Founder', Bootstrapper: 'Bootstrapper', Impact: 'Impact Investor', Distributor: 'Growth Founder' }; // short names so neighbouring plates never overlap
+const fullTitle = (n) => ROSTER.find(r => r.name === n)?.title || n; // transcript sent to the model uses titles, never internal ids
 const who = (n) => `<i style="background:${hex(n)}"></i>${shortTitle(n)}`; // colored dot + archetype title, used in the decision log
 const STANCE_Y = { skeptical: -0.25, neutral: 0, warming: 0.15, sold: 0.35 };
 const $ = (id) => document.getElementById(id);
@@ -149,8 +150,8 @@ async function pitchIdea(s) {
   if (!idea) throw new Error(error || 'no idea returned');
   s.lastProposer = proposer; if (s.title === 'New boardroom') s.title = `Idea: ${idea.title}`;
   logEntry(s, `<b>${who(proposer)} proposes: ${esc(idea.title)}</b>${esc(idea.pitch)}`, 'mem');
-  s.history.push(`${proposer} pitched the idea "${idea.title}": ${idea.pitch}`);
-  for (const r of debate) { logEntry(s, `<b>${who(r.agent)} on ${shortTitle(proposer)}'s idea → ${esc(r.stance)} (${r.score}/10 fundable, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`); s.history.push(`${r.agent}: ${r.reply}`); setStance(s, r.agent, r.stance); }
+  s.history.push(`${fullTitle(proposer)} pitched the idea "${idea.title}": ${idea.pitch}`);
+  for (const r of debate) { logEntry(s, `<b>${who(r.agent)} on ${shortTitle(proposer)}'s idea → ${esc(r.stance)} (${r.score}/10 fundable, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`); s.history.push(`${fullTitle(r.agent)}: ${r.reply}`); setStance(s, r.agent, r.stance); }
   logEntry(s, '<b>Your turn</b>Defend, reshape, or pivot the idea. Type "idea" for a different one.');
   await save(s);
   if (!live(s)) return;
@@ -168,7 +169,7 @@ async function say(only = null) { // only: a panelist the founder addressed dire
   busy = true; $('in').value = '';
   try {
     if (/^\/?idea\b/i.test(text) && !only) { await pitchIdea(s); return; }
-    s.turn++; setTurn(s); s.history.push(only ? `Founder (to ${only}): ${text}` : 'Founder: ' + text);
+    s.turn++; setTurn(s); s.history.push(only ? `Founder (to ${fullTitle(only)}): ${text}` : 'Founder: ' + text);
     if (s.title === 'New boardroom') s.title = text.length > 48 ? text.slice(0, 48) + '…' : text;
     logEntry(s, `<b>You${only ? ' → ' + shortTitle(only) : ''}</b>${esc(text)}`);
     const { results, error } = await api('turn', { session_id: s.id, turn: s.turn, transcript: s.history.join('\n'), founder: text, agents: s.agents, responders: only ? [only] : undefined });
@@ -177,7 +178,7 @@ async function say(only = null) { // only: a panelist the founder addressed dire
       setStance(s, r.agent, r.stance); s.events.push({ ...r, turn: s.turn, founder_quote: text });
       logEntry(s, `<b>${who(r.agent)} → ${esc(r.stance)} (${r.score}/10, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
     }
-    for (const r of results) s.history.push(`${r.agent}: ${r.reply}`);
+    for (const r of results) s.history.push(`${fullTitle(r.agent)}: ${r.reply}`);
     await save(s);
     if (live(s)) await speakSeq(s, results.map(r => ({ name: r.agent, text: r.reply })));
   } catch (e) { logEntry(s, `<b>Error</b>${esc(e.message || e)}`); await save(s); }
@@ -195,7 +196,7 @@ async function giveFloor(name) {
     const r = await api('jumpin', { agents: s.agents, transcript: s.history.join('\n'), agent: name });
     if (!r.reply) throw new Error(r.error || 'no reply');
     setStance(s, name, r.stance); logEntry(s, `<b>${who(name)} takes the floor → ${esc(r.stance)} (${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
-    s.history.push(`${name} (jumped in): ${r.reply}`); await save(s);
+    s.history.push(`${fullTitle(name)} (jumped in): ${r.reply}`); await save(s);
     if (live(s)) await speakSeq(s, [{ name, text: r.reply }]);
   } catch (e) { logEntry(s, `<b>Error</b>${esc(e.message || e)}`); await save(s); }
   finally { busy = false; if (live(s)) $('in').focus(); }
@@ -281,6 +282,7 @@ addEventListener('hashchange', route);
 try {
   const start = await api('start');
   if (!start.roster || !start.defaults) throw new Error('The API server is out of date. Stop it (Ctrl+C) and run `npm run dev` again.');
-  names = start.agents; ROSTER = start.roster; LIMITS = { min: start.min, max: start.max }; DEFAULT = start.defaults.slice(0, 3); names.forEach(addAgent);
+  names = start.agents; ROSTER = start.roster; LIMITS = { min: start.min, max: start.max };
+  if (start.live === false) document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:50;background:#b3261e;color:#fff;padding:8px 16px;border-radius:0 0 10px 10px;font-weight:600">OFFLINE MOCK MODE: the API server has no GEMINI_API_KEY, so replies are canned placeholders. Stop it, export the key, and restart npm run dev.</div>'); DEFAULT = start.defaults.slice(0, 3); names.forEach(addAgent);
 } catch (e) { document.body.insertAdjacentHTML('beforeend', `<div style="position:fixed;top:60px;left:16px;color:#f88">Startup error: ${esc(e.message || e)}</div>`); }
 route();
