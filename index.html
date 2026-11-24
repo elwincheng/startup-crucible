@@ -12,7 +12,7 @@
 button{padding:12px 16px;border-radius:8px;border:0;background:#5b8cff;color:#fff;font-weight:600;cursor:pointer}
 button.alt{background:#2a2f3a}
 #hud{position:fixed;left:16px;top:16px;font-size:13px;color:#aab}
-.bub{position:fixed;max-width:240px;padding:8px 10px;border-radius:10px;background:#fff;color:#111;font-size:12px;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .2s}
+.bub{z-index:6;position:fixed;max-width:240px;padding:8px 10px;border-radius:10px;background:#fff;color:#111;font-size:12px;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .2s}
 .bub.on{opacity:1}
 #verdict{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center}
 #verdict i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
@@ -45,9 +45,11 @@ body.pick #pick{display:block}
 #pickbar{position:sticky;bottom:0;margin-top:24px;padding:14px 0;background:#0b0d12f2;display:flex;gap:12px;align-items:center}
 #pickbar .n{color:#8a93a6;flex:1}button:disabled{opacity:.4;cursor:not-allowed}
 body.pick #hud,body.pick #log,body.pick #bar{display:none}
-.tag{position:fixed;transform:translate(-50%,-100%);padding:3px 9px;border-radius:999px;background:#12151cdd;border:1px solid #2a2f3a;font-size:11px;font-weight:600;pointer-events:none;white-space:nowrap;transition:border-color .2s,background .2s}
-.tag.on{border-color:#fff;background:#26304a}
-.tag i,.e i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.tag{position:fixed;transform:translate(-50%,-100%);padding:5px 14px 6px;border-radius:12px;background:#0f1320ee;border:2px solid var(--c,#2a2f3a);box-shadow:0 0 14px -2px var(--c,transparent);text-align:center;white-space:nowrap;pointer-events:none;transition:background .2s,box-shadow .2s;z-index:5}
+.tag .tt{font-size:14px;font-weight:700;color:#fff}
+.tag .kk{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--c,#8a93a6)}
+.tag.on{background:#26304a;box-shadow:0 0 22px 2px var(--c,transparent)}
+.tag i,.e i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:baseline}
 body.home .tag,body.pick .tag{display:none}
 </style></head><body>
 <canvas id="c"></canvas>

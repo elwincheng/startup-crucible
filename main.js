@@ -3,6 +3,7 @@ import * as THREE from 'three';
 const COLORS = { Contrarian: 0xc0392b, Purist: 0x27ae60, Scaler: 0x8e44ad, Operator: 0xe67e22, Hacker: 0x16a5b8, Bootstrapper: 0x7f8c3a, Impact: 0x2e86de, Distributor: 0xd6336c };
 const hex = (n) => '#' + COLORS[n].toString(16).padStart(6, '0');
 const shortTitle = (n) => (ROSTER.find(r => r.name === n)?.title || n).replace(/^The /, '');
+const PLATE = { Contrarian: 'Monopolist', Purist: 'Purist', Scaler: 'Big-Bet Investor', Operator: 'Operator', Hacker: 'Tech Founder', Bootstrapper: 'Bootstrapper', Impact: 'Impact Investor', Distributor: 'Growth Founder' }; // short names so neighbouring plates never overlap
 const who = (n) => `<i style="background:${hex(n)}"></i>${shortTitle(n)}`; // colored dot + archetype title, used in the decision log
 const STANCE_Y = { skeptical: -0.25, neutral: 0, warming: 0.15, sold: 0.35 };
 const $ = (id) => document.getElementById(id);
@@ -29,7 +30,7 @@ function addAgent(name) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.02; ring.visible = false;
   g.add(body, head, arm, ring); scene.add(g);
   const bub = document.createElement('div'); bub.className = 'bub'; document.body.appendChild(bub);
-  const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = who(name); document.body.appendChild(tag);
+  const tag = document.createElement('div'); tag.className = 'tag'; tag.style.setProperty('--c', hex(name)); tag.innerHTML = `<div class="tt"><i style="background:${hex(name)}"></i>${PLATE[name] || name}</div><div class="kk">${ROSTER.find(r => r.name === name)?.kind || ''}</div>`; document.body.appendChild(tag);
   avatars[name] = { g, body, head, arm, ring, bub, tag, speaking: 0, targetY: 0, home: new THREE.Vector3(), homeRot: 0, target: new THREE.Vector3(), targetRot: 0, stance: 'neutral', t: Math.random() * 6 };
 }
 
@@ -65,7 +66,7 @@ const v = new THREE.Vector3();
     v.copy(a.g.position); v.y += 2.35; v.project(cam); // nameplate just above the head
     a.tag.style.left = (v.x * 0.5 + 0.5) * innerWidth - 0 + 'px'; a.tag.style.top = (-v.y * 0.5 + 0.5) * innerHeight + 'px';
     v.copy(a.g.position); v.y += 2.35; v.project(cam); // speech bubble sits above the nameplate
-    a.bub.style.left = (v.x * 0.5 + 0.5) * innerWidth + 'px'; a.bub.style.top = (-v.y * 0.5 + 0.5) * innerHeight - 26 + 'px';
+    a.bub.style.left = (v.x * 0.5 + 0.5) * innerWidth + 'px'; a.bub.style.top = (-v.y * 0.5 + 0.5) * innerHeight - (a.tag.offsetHeight + 16) + 'px'; // sit a clear 16px above the nameplate, whatever its height
   }
   renderer.render(scene, cam);
 })();
