@@ -48,6 +48,63 @@ function memory() {
   } catch { return []; }
 }
 
+// --- Persona voices (Gemini TTS prebuilt voice per archetype). style is '' on purpose: the model reads any cue aloud. ---
+const VOICES = {
+  Contrarian: { voice: 'Algenib', style: '' },
+  Purist: { voice: 'Sulafat', style: '' },
+  Scaler: { voice: 'Fenrir', style: '' },
+  Operator: { voice: 'Schedar', style: '' },
+  Hacker: { voice: 'Puck', style: '' },
+  Bootstrapper: { voice: 'Alnilam', style: '' },
+  Impact: { voice: 'Vindemiatrix', style: '' },
+  Distributor: { voice: 'Laomedeia', style: '' },
+};
+const ttsCache = new Map();
+// Gemini TTS sometimes appends a stray burst of noise after the last word. Drop a short isolated burst that follows
+// enough speech to have covered the whole line, trim the very end, and fade out so there is no pop.
+function cleanPcm(pcm, rate, text) {
+  const n = pcm.length >> 1; if (n < rate * 0.3) return pcm;
+  const x = new Int16Array(n); for (let i = 0; i < n; i++) x[i] = pcm.readInt16LE(i * 2);
+  const fr = Math.round(rate * 0.02), frames = Math.floor(n / fr), rms = new Float64Array(frames);
+  for (let f = 0; f < frames; f++) { let a = 0; for (let i = f * fr; i < (f + 1) * fr; i++) a += x[i] * x[i]; rms[f] = Math.sqrt(a / fr); }
+  const thr = Math.max(...rms) * 0.06;
+  let end = frames - 1; while (end > 0 && rms[end] < thr) end--;
+  let bs = end, gap = 0; for (let i = end; i >= 0; i--) { if (rms[i] >= thr) { bs = i; gap = 0; } else if (++gap >= 6) break; } // 6 frames = 120ms of silence ends a burst
+  let keep = end + 1;
+  if (bs > 0 && end - bs + 1 <= 25) { // final burst <= 500ms, preceded by a pause
+    let e2 = bs - 1; while (e2 > 0 && rms[e2] < thr) e2--;
+    const spokenSec = (e2 + 1) * 0.02, words = text.trim().split(/\s+/).length;
+    if (spokenSec >= (words / 3.5) * 0.9) keep = e2 + 1; // earlier audio already covers the text: the burst is extra
+  }
+  const len = Math.min(n, (keep + 2) * fr), fade = Math.min(len, Math.round(rate * 0.08));
+  for (let i = len - fade; i < len; i++) x[i] = Math.round(x[i] * (len - i) / fade);
+  const out = Buffer.alloc(len * 2); for (let i = 0; i < len; i++) out.writeInt16LE(x[i], i * 2); return out;
+}
+function pcmToWav(pcm, rate = 24000) { // Gemini returns raw 16-bit mono PCM
+  const h = Buffer.alloc(44); h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVEfmt ', 8); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+async function tts(agent, text) {
+  const key = `${agent}|${text}`; if (ttsCache.has(key)) return { ok: true, wav: ttsCache.get(key) };
+  if (!KEY || !TTS_MODELS.length) return { ok: false, error: 'no tts model available' };
+  const v = VOICES[agent];
+  const payload = { contents: [{ parts: [{ text: v.style ? `Say ${v.style}: ${text}` : text }] }],
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: v.voice } } } } };
+  let lastErr = '';
+  for (const model of TTS_MODELS.slice(0, 2)) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': KEY }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });
+      const data = await r.json(); if (!r.ok) throw new Error(data.error?.message || r.status);
+      const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData); if (!part) throw new Error('no audio in response');
+      const rate = Number(/rate=(\d+)/.exec(part.inlineData.mimeType || '')?.[1]) || 24000;
+      const wav = pcmToWav(cleanPcm(Buffer.from(part.inlineData.data, 'base64'), rate, text), rate); ttsCache.set(key, wav); return { ok: true, wav };
+    } catch (e) { lastErr = `${model}: ${String(e.message || e).slice(0, 140)}`; console.error('tts failed -', lastErr); }
+  }
+  return { ok: false, error: lastErr };
+}
+
 // --- Saved boardroom sessions: one JSON file per session in data/sessions/ ---
 const SDIR = 'data/sessions';
 fs.mkdirSync(SDIR, { recursive: true });
@@ -60,6 +117,7 @@ const refreshBruin = () => { try { execFileSync('bruin', ['run', 'my-pipeline'],
 
 // Model chain: primary first, then flash-class models this key can actually call (discovered at startup via ListModels).
 let MODELS = [MODEL];
+let TTS_MODELS = [];
 async function discoverModels() {
   if (!KEY) return;
   try {
@@ -68,6 +126,10 @@ async function discoverModels() {
     const ok = (d.models || []).filter(m => m.supportedGenerationMethods?.includes('generateContent')).map(m => m.name.replace('models/', ''))
       .filter(n => /^gemini-.*flash/.test(n) && !/(image|tts|live|audio|robotics|computer|embedding)/.test(n));
     ok.sort((x, y) => (/lite/.test(x) - /lite/.test(y)) || y.localeCompare(x)); // full flash before lite, newest name first
+    TTS_MODELS = (d.models || []).filter(m => m.supportedGenerationMethods?.includes('generateContent')).map(m => m.name.replace('models/', ''))
+      .filter(n => /tts/.test(n)).sort((x, y) => (/pro/.test(x) - /pro/.test(y)) || y.localeCompare(x)); // flash TTS first: faster and cheaper
+    if (process.env.GEMINI_TTS_MODEL) TTS_MODELS = [process.env.GEMINI_TTS_MODEL, ...TTS_MODELS];
+    console.log('tts models:', TTS_MODELS.join(', ') || '(none found: browser voices will be used)');
     const extra = process.env.GEMINI_FALLBACKS ? process.env.GEMINI_FALLBACKS.split(',') : ok;
     MODELS = [MODEL, ...extra].filter((m, i, a) => m && a.indexOf(m) === i).slice(0, 5);
     if (!ok.includes(MODEL)) console.warn(`warning: ${MODEL} not in your key's model list; available: ${ok.join(', ')}`);
@@ -162,6 +224,13 @@ http.createServer(async (req, res) => {
       const { results } = out; // only real model output reaches the Bruin event log
       for (const r of results) log({ session_id, ts: new Date().toISOString().replace('T', ' ').slice(0, 19), turn, agent: r.agent, topic: r.topic, stance: r.stance, score: r.score, founder_quote: founder, reason: r.reason });
       return send(res, { results });
+    }
+    if (req.url === '/api/tts') {
+      const { agent, text } = await body(req);
+      if (!VOICES[agent] || typeof text !== 'string' || !text || text.length > 600) return send(res, { error: 'bad tts request' }, 400);
+      const out = await tts(agent, text);
+      if (!out.ok) return send(res, { error: out.error }, 503);
+      res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': out.wav.length }); return res.end(out.wav);
     }
     if (req.url === '/api/sessions') {
       const list = fs.readdirSync(SDIR).filter(f => f.endsWith('.json')).map(f => { try { return summary(JSON.parse(fs.readFileSync(`${SDIR}/${f}`, 'utf8'))); } catch { return null; } }).filter(Boolean);

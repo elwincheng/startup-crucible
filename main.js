@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 const COLORS = { Contrarian: 0xc0392b, Purist: 0x27ae60, Scaler: 0x8e44ad, Operator: 0xe67e22, Hacker: 0x16a5b8, Bootstrapper: 0x7f8c3a, Impact: 0x2e86de, Distributor: 0xd6336c };
-const PITCH = { Contrarian: 0.7, Purist: 1.3, Scaler: 1.0, Operator: 0.85, Hacker: 1.15, Bootstrapper: 0.9, Impact: 1.25, Distributor: 1.05 };
 const STANCE_Y = { skeptical: -0.25, neutral: 0, warming: 0.15, sold: 0.35 };
 const $ = (id) => document.getElementById(id);
 let busy = false;
@@ -63,17 +62,50 @@ const v = new THREE.Vector3();
   renderer.render(scene, cam);
 })();
 
-const voices = () => speechSynthesis.getVoices().filter(x => x.lang.startsWith('en'));
-function speak(name, text) {
+// ---- Voices: Gemini TTS per persona (server /api/tts); browser voices as a fallback, no pitch tricks ----
+const MALE = { Contrarian: 1, Scaler: 1, Operator: 1, Hacker: 1, Bootstrapper: 1 }; // fallback only: which browser voice gender suits the persona
+const NOVELTY = /albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|junior|kathy|organ|princess|ralph|trinoids|whisper|zarvox|fred|superstar|wobble/i;
+const FEMALE = /samantha|karen|moira|tessa|victoria|fiona|allison|ava|susan|zoe|serena|kate|female|google uk english female/i;
+function browserVoice(name) {
+  const vs = speechSynthesis.getVoices().filter(v => /^en/.test(v.lang) && !NOVELTY.test(v.name));
+  const want = MALE[name] ? vs.filter(v => !FEMALE.test(v.name)) : vs.filter(v => FEMALE.test(v.name));
+  const pool = want.length ? want : vs; if (!pool.length) return null;
+  const q = (v) => (/premium|enhanced|natural/i.test(v.name) ? 3 : 0) + (/google/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1);
+  pool.sort((x, y) => q(y) - q(x) || x.name.localeCompare(y.name));
+  return pool[names.indexOf(name) % pool.length];
+}
+let ttsOffUntil = 0; const audioCache = new Map();
+function fetchAudio(line) { // memoised: resolves to a blob URL or null (TTS unavailable: use browser voice)
+  const key = line.name + '|' + line.text; if (audioCache.has(key)) return audioCache.get(key);
+  const pr = (async () => {
+    if (Date.now() < ttsOffUntil) return null;
+    try {
+      const r = await fetch('/api/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: line.name, text: line.text }), signal: AbortSignal.timeout(22000) });
+      if (!r.ok || !(r.headers.get('content-type') || '').includes('audio')) throw new Error('tts ' + r.status);
+      return URL.createObjectURL(await r.blob());
+    } catch { ttsOffUntil = Date.now() + 60000; return null; } // back off for a minute, browser voices meanwhile
+  })();
+  audioCache.set(key, pr); return pr;
+}
+function play(name, text, url) {
   return new Promise(res => {
     const a = avatars[name]; a.bub.textContent = text; a.bub.classList.add('on'); a.speaking = Math.max(2.5, text.length / 15);
     let done = false; const finish = () => { if (done) return; done = true; a.bub.classList.remove('on'); res(); };
-    setTimeout(finish, Math.max(3000, text.length * 90)); // Chrome sometimes never fires onend
-    try {
-      const u = new SpeechSynthesisUtterance(text); const vs = voices(); if (vs.length) u.voice = vs[names.indexOf(name) % vs.length];
-      u.pitch = PITCH[name]; u.rate = 1.1; u.onend = finish; u.onerror = finish; speechSynthesis.speak(u);
-    } catch { /* silent fallback: bubble timeout above */ }
+    const viaBrowser = () => { setTimeout(finish, Math.max(3000, text.length * 90)); // Chrome sometimes never fires onend
+      try { const u = new SpeechSynthesisUtterance(text); const v = browserVoice(name); if (v) u.voice = v; u.rate = 1; u.onend = finish; u.onerror = finish; speechSynthesis.speak(u); } catch {} };
+    if (!url) return viaBrowser();
+    const au = new Audio(url); au.onloadedmetadata = () => { a.speaking = au.duration + 0.4; }; au.onended = finish; au.onerror = () => { if (!done) viaBrowser(); };
+    setTimeout(finish, 60000); au.play().catch(viaBrowser);
   });
+}
+async function speakSeq(s, lines) { // fetch audio one line ahead of playback so the next voice is ready
+  let next = fetchAudio(lines[0]);
+  for (let i = 0; i < lines.length; i++) {
+    const cur = next; next = lines[i + 1] ? fetchAudio(lines[i + 1]) : null;
+    const url = await cur; if (!live(s)) return;
+    await play(lines[i].name, lines[i].text, url);
+    if (!live(s)) return;
+  }
 }
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -101,9 +133,10 @@ async function pitchIdea(s) {
   logEntry(s, '<b>Your turn</b>Defend, reshape, or pivot the idea. Type "idea" for a different one.');
   await save(s);
   if (!live(s)) return;
+  const lines = [{ name: proposer, text: idea.pitch }, ...debate.map(r => ({ name: r.agent, text: r.reply }))];
+  fetchAudio(lines[0]); // start the voice request while the proposer walks out
   const p = avatars[proposer]; p.target.set(0, 0, 3.4); p.targetRot = Math.PI; await sleep(1500); // walk out in front of the table, face the panel
-  if (live(s)) await speak(proposer, idea.pitch);
-  for (const r of debate) { if (!live(s)) return; await speak(r.agent, r.reply); }
+  if (live(s)) await speakSeq(s, lines);
   p.target.copy(p.home); p.targetRot = p.homeRot;
 }
 
@@ -125,7 +158,7 @@ async function say() {
     }
     for (const r of results) s.history.push(`${r.agent}: ${r.reply}`);
     await save(s);
-    for (const r of results) { if (!live(s)) break; await speak(r.agent, r.reply); }
+    if (live(s)) await speakSeq(s, results.map(r => ({ name: r.agent, text: r.reply })));
   } catch (e) { logEntry(s, `<b>Error</b>${esc(e.message || e)}`); await save(s); }
   finally { busy = false; if (live(s)) $('in').focus(); }
   if (live(s) && s.turn >= 6) verdict();
