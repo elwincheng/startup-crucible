@@ -1,4 +1,4 @@
-# Startup Crucible
+# [Startup Crucible](https://ammonia-overprice-dosage.ngrok-free.dev/)
 
 **A 3D boardroom where AI investor and founder personas grill your startup idea, argue with each other, and hand down an evidence-backed verdict.**
 
