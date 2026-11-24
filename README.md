@@ -4,7 +4,7 @@
 
 Built for the multiplayer AI hackathon, **Track 3: Grow with Agents**. The roles are reversed: the agents are the experts, and you are the one being trained.
 
-![The boardroom: five persona avatars with color-coded nameplates around a table, decision log on the right](docs/boardroom.png)
+[![The boardroom: five persona avatars with color-coded nameplates around a table, decision log on the right](docs/boardroom.png)](https://ammonia-overprice-dosage.ngrok-free.dev/)
 
 ## What happens in a session
 
