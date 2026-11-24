@@ -51,6 +51,8 @@ body.pick #hud,body.pick #log,body.pick #bar{display:none}
 .tag.on{background:#26304a;box-shadow:0 0 22px 2px var(--c,transparent)}
 .tag i,.e i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:baseline}
 body.home .tag,body.pick .tag{display:none}
+/* stacking: 3D labels (plates 5, bubbles 6) < UI panels 10 < full-screen overlays 20 < verdict 30 */
+#hud,#log,#bar{z-index:10}#home,#pick{z-index:20}#verdict{z-index:30}
 </style></head><body>
 <canvas id="c"></canvas>
 <div id="home"><div class="wrap"><h1>Startup Crucible</h1><div class="sub">Your boardroom sessions. Each one is a separate pitch in front of the panel.</div><div id="grid"></div></div></div>
