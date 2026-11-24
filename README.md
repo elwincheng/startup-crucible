@@ -2,6 +2,9 @@
 
 [![Startup Crucible Demo](https://img.youtube.com/vi/fpp9swWoUZI/maxresdefault.jpg)](https://youtu.be/fpp9swWoUZI)
 
+- [Youtube Video](https://youtu.be/fpp9swWoUZI)
+- [Live Page](https://ammonia-overprice-dosage.ngrok-free.dev/)
+
 **A 3D boardroom where AI investor and founder personas grill your startup idea, argue with each other, and hand down an evidence-backed verdict.**
 
 Built for the multiplayer AI hackathon, **Track 3: Grow with Agents**. The roles are reversed: the agents are the experts, and you are the one being trained.
