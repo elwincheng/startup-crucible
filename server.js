@@ -167,6 +167,9 @@ async function gemini(system, user, parse, maxOutputTokens = 2048) {
   }
   return { ok: false, error: lastErr };
 }
+const RUBRIC = `Scoring scale for the founder's latest answer (0-10). Be skeptical in TONE but FAIR in SCORE; a hard question does not justify a low number:
+0-2 = no evidence, or dodges the question. 3-4 = plausible claim, unproven. 5-6 = competent, with some concrete evidence. 7-8 = strong and specific, backed by real data, users or traction. 9-10 = exceptional, give rarely.
+Judge through YOUR persona's lens: an answer that is solid in your lens deserves 6 or more even if you still have follow-up questions. Keep stance consistent with the score: skeptical = 0-4, neutral = 5, warming = 6-7, sold = 8-10.`;
 const memText = (mem) => mem.length ? `Memory from past sessions (press on these): ${mem.map(m => `${m.topic} (avg ${m.avg}/10, e.g. "${m.quote}")`).join('; ')}.` : '';
 const roster = (list) => list.map(n => `- ${n}: ${AGENTS[n]}`).join('\n');
 const cut = (t, open, close) => JSON.parse(t.slice(t.indexOf(open), t.lastIndexOf(close) + 1));
@@ -178,6 +181,7 @@ async function panelTurn(list, transcript, founder, mem, who = list) { // who: p
   const system = `You play a startup investor panel of ${list.length} distinct characters. Never claim to be a real person.
 ${roster(list)}
 ${memText(mem)}
+${RUBRIC}
 Each replying character reacts to the founder's latest message in their own voice, and may reference what another panelist said.${who.length < list.length ? ` Only ${who.join(', ')} reply; the other panelists stay silent. If the founder addressed someone directly, answer as that person.` : ''} Reply ONLY with a JSON array of ${who.length} objects, one per character in this order: ${who.join(', ')}.
 Each object: {"agent":"<name>","reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 rating of the founder's latest answer>,"reason":"one sentence citing what the founder said"}`;
   const out = await gemini(system, `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"`, (t) => {
@@ -211,7 +215,7 @@ async function ideaTurn(list, transcript, mem, proposer) {
   const system = `You play a startup investor panel. Never claim to be a real person.
 ${roster(list)}
 ${memText(mem)}
-${proposer} must pitch ONE startup idea or societal problem worth solving that reflects their worldview (not generic). Then ${others.join(', ')} debate it IN THAT ORDER, each reacting to ${proposer} and to the panelist who spoke just before, disagreeing where their persona would. Don't repeat ideas already in the transcript.
+${proposer} must pitch ONE startup idea or societal problem worth solving that reflects their worldview (not generic). Then ${others.join(', ')} debate it IN THAT ORDER, each reacting to ${proposer} and to the panelist who spoke just before, disagreeing where their persona would. Don't repeat ideas already in the transcript. For each debater's score (how fundable the idea is, 0-10): 0-2 = not fundable, 3-4 = weak, 5-6 = interesting but unproven, 7-8 = would take a meeting or invest, 9-10 = rare; judge through your own persona's lens and keep stance consistent with the score (skeptical 0-4, neutral 5, warming 6-7, sold 8-10).
 Reply ONLY with JSON: {"title":"<=6 words","pitch":"2 sentences, spoken by ${proposer} in first person","debate":[{"agent":"<name>","reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 how fundable this idea is>,"reason":"one sentence on why, citing the pitch"}]}
 The debate array must have exactly ${others.length} entries in order: ${others.join(', ')}.`;
   const out = await gemini(system, `Transcript so far:\n${transcript || '(empty)'}`, (t) => {

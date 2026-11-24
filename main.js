@@ -201,7 +201,7 @@ async function giveFloor(name) {
   finally { busy = false; if (live(s)) $('in').focus(); }
 }
 
-function showVerdict(s) { $('vbody').innerHTML = s.verdictHtml + '<p><button id="vhome">Back to sessions</button> <button id="vclose" class="alt">Close</button></p>'; $('verdict').style.display = 'flex';
+function showVerdict(s) { $('vbody').innerHTML = s.verdictHtml + '<div class="vbar"><button id="vhome">Back to sessions</button> <button id="vclose" class="alt">Close</button></div>'; $('verdict').style.display = 'flex';
   $('vhome').onclick = () => { $('verdict').style.display = 'none'; location.hash = '#/'; }; $('vclose').onclick = () => { $('verdict').style.display = 'none'; }; }
 async function verdict() {
   const s = S; if (!s || s.verdictHtml) { if (s?.verdictHtml) showVerdict(s); return; }
