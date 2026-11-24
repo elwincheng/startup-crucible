@@ -1,11 +1,14 @@
 # [Startup Crucible](https://ammonia-overprice-dosage.ngrok-free.dev/)
 
+[![Startup Crucible Demo](https://img.youtube.com/vi/fpp9swWoUZI/maxresdefault.jpg)](https://youtu.be/fpp9swWoUZI)
+
 **A 3D boardroom where AI investor and founder personas grill your startup idea, argue with each other, and hand down an evidence-backed verdict.**
 
 Built for the multiplayer AI hackathon, **Track 3: Grow with Agents**. The roles are reversed: the agents are the experts, and you are the one being trained.
 
-[![The boardroom: five persona avatars with color-coded nameplates around a table, decision log on the right](docs/boardroom.png)](https://ammonia-overprice-dosage.ngrok-free.dev/)
-
+<!--
+[![The boardroom: five persona avatars with color-coded nameplates around a table, decision log on the right](docs/boardroom.png)](https://ammonia-overprice-dosage.ngrok-free.dev/)%
+-->
 ## What happens in a session
 
 1. **Assemble the room.** Pick 3 to 5 of 8 archetypes: the Monopolist Strategist, the User-Pull Purist, the Big-Bet Investor, the Pragmatic Operator, the Impact Investor, the Technical Founder, the Bootstrapper, the Growth Founder. They are personas, not real people.
