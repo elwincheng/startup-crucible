@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 
 const COLORS = { Contrarian: 0xc0392b, Purist: 0x27ae60, Scaler: 0x8e44ad, Operator: 0xe67e22, Hacker: 0x16a5b8, Bootstrapper: 0x7f8c3a, Impact: 0x2e86de, Distributor: 0xd6336c };
+const hex = (n) => '#' + COLORS[n].toString(16).padStart(6, '0');
+const shortTitle = (n) => (ROSTER.find(r => r.name === n)?.title || n).replace(/^The /, '');
+const who = (n) => `<i style="background:${hex(n)}"></i>${shortTitle(n)}`; // colored dot + archetype title, used in the decision log
 const STANCE_Y = { skeptical: -0.25, neutral: 0, warming: 0.15, sold: 0.35 };
 const $ = (id) => document.getElementById(id);
 let busy = false;
@@ -26,7 +29,8 @@ function addAgent(name) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.04, 8, 32), new THREE.MeshBasicMaterial({ color: 0xffffff })); ring.rotation.x = Math.PI / 2; ring.position.y = 0.02; ring.visible = false;
   g.add(body, head, arm, ring); scene.add(g);
   const bub = document.createElement('div'); bub.className = 'bub'; document.body.appendChild(bub);
-  avatars[name] = { g, body, head, arm, ring, bub, speaking: 0, targetY: 0, home: new THREE.Vector3(), homeRot: 0, target: new THREE.Vector3(), targetRot: 0, stance: 'neutral', t: Math.random() * 6 };
+  const tag = document.createElement('div'); tag.className = 'tag'; tag.innerHTML = who(name); document.body.appendChild(tag);
+  avatars[name] = { g, body, head, arm, ring, bub, tag, speaking: 0, targetY: 0, home: new THREE.Vector3(), homeRot: 0, target: new THREE.Vector3(), targetRot: 0, stance: 'neutral', t: Math.random() * 6 };
 }
 
 // Seat the chosen archetypes in an arc behind the table; everyone else is hidden.
@@ -47,7 +51,8 @@ addEventListener('resize', resize); resize(); renderer.setPixelRatio(devicePixel
 const v = new THREE.Vector3();
 (function loop(now = 0) {
   requestAnimationFrame(loop);
-  for (const a of Object.values(avatars)) {
+  for (const [name, a] of Object.entries(avatars)) {
+    a.tag.style.display = a.g.visible ? '' : 'none';
     if (!a.g.visible) continue;
     a.t += 0.02;
     const bob = a.speaking > 0 ? Math.sin(a.t * 12) * 0.05 : Math.sin(a.t) * 0.01;
@@ -55,12 +60,27 @@ const v = new THREE.Vector3();
     a.g.rotation.y += (a.targetRot - a.g.rotation.y) * 0.06;
     a.g.position.y += (a.targetY - a.g.position.y) * 0.08; // stance: sink when skeptical, rise when sold
     a.head.position.y = 1.9 + bob; a.arm.rotation.z = a.speaking > 0 ? 0.3 + Math.sin(a.t * 10) * 0.8 : 0.3;
-    a.head.rotation.z = a.stance === 'skeptical' ? 0.3 : 0; a.ring.visible = a.speaking > 0; a.speaking = Math.max(0, a.speaking - 0.016);
-    v.copy(a.g.position); v.y += 2.5; v.project(cam);
-    a.bub.style.left = (v.x * 0.5 + 0.5) * innerWidth + 'px'; a.bub.style.top = (-v.y * 0.5 + 0.5) * innerHeight + 'px';
+    a.head.rotation.z = a.stance === 'skeptical' ? 0.3 : 0; a.ring.visible = a.speaking > 0 || hover === name; a.speaking = Math.max(0, a.speaking - 0.016);
+    a.tag.classList.toggle('on', a.speaking > 0 || hover === name);
+    v.copy(a.g.position); v.y += 2.35; v.project(cam); // nameplate just above the head
+    a.tag.style.left = (v.x * 0.5 + 0.5) * innerWidth - 0 + 'px'; a.tag.style.top = (-v.y * 0.5 + 0.5) * innerHeight + 'px';
+    v.copy(a.g.position); v.y += 2.35; v.project(cam); // speech bubble sits above the nameplate
+    a.bub.style.left = (v.x * 0.5 + 0.5) * innerWidth + 'px'; a.bub.style.top = (-v.y * 0.5 + 0.5) * innerHeight - 26 + 'px';
   }
   renderer.render(scene, cam);
 })();
+
+// ---- Click an avatar to give them the floor ----
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2(); let hover = null;
+function pickAvatar(ev) {
+  if (document.body.classList.contains('home') || document.body.classList.contains('pick')) return null;
+  ptr.set(ev.clientX / innerWidth * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ptr, cam);
+  const meshes = []; for (const [n, a] of Object.entries(avatars)) if (a.g.visible) a.g.traverse(o => { if (o.isMesh && o !== a.ring) { o.userData.agent = n; meshes.push(o); } });
+  return ray.intersectObjects(meshes, false)[0]?.object.userData.agent ?? null;
+}
+$('c').addEventListener('pointermove', (ev) => { hover = pickAvatar(ev); $('c').style.cursor = hover ? 'pointer' : ''; });
+$('c').addEventListener('pointerleave', () => { hover = null; });
+$('c').addEventListener('click', (ev) => { const n = pickAvatar(ev); if (n) giveFloor(n); });
 
 // ---- Voices: Gemini TTS per persona (server /api/tts); browser voices as a fallback, no pitch tricks ----
 const MALE = { Contrarian: 1, Scaler: 1, Operator: 1, Hacker: 1, Bootstrapper: 1 }; // fallback only: which browser voice gender suits the persona
@@ -127,9 +147,9 @@ async function pitchIdea(s) {
   const { proposer, idea, debate, error } = await api('idea', { transcript: s.history.join('\n'), last: s.lastProposer, agents: s.agents });
   if (!idea) throw new Error(error || 'no idea returned');
   s.lastProposer = proposer; if (s.title === 'New boardroom') s.title = `Idea: ${idea.title}`;
-  logEntry(s, `<b>${proposer} proposes: ${esc(idea.title)}</b>${esc(idea.pitch)}`, 'mem');
+  logEntry(s, `<b>${who(proposer)} proposes: ${esc(idea.title)}</b>${esc(idea.pitch)}`, 'mem');
   s.history.push(`${proposer} pitched the idea "${idea.title}": ${idea.pitch}`);
-  for (const r of debate) { logEntry(s, `<b>${r.agent} on ${proposer}'s idea → ${esc(r.stance)} (${r.score}/10 fundable, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`); s.history.push(`${r.agent}: ${r.reply}`); setStance(s, r.agent, r.stance); }
+  for (const r of debate) { logEntry(s, `<b>${who(r.agent)} on ${shortTitle(proposer)}'s idea → ${esc(r.stance)} (${r.score}/10 fundable, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`); s.history.push(`${r.agent}: ${r.reply}`); setStance(s, r.agent, r.stance); }
   logEntry(s, '<b>Your turn</b>Defend, reshape, or pivot the idea. Type "idea" for a different one.');
   await save(s);
   if (!live(s)) return;
@@ -140,21 +160,21 @@ async function pitchIdea(s) {
   p.target.copy(p.home); p.targetRot = p.homeRot;
 }
 
-async function say() {
+async function say(only = null) { // only: a panelist the founder addressed directly
   const s = S; if (!s || s.verdictHtml) return;
   const text = $('in').value.trim(); if (!text) return;
   if (busy) { logEntry(s, '<b>Panel is still responding…</b>'); return; }
   busy = true; $('in').value = '';
   try {
-    if (/^\/?idea\b/i.test(text)) { await pitchIdea(s); return; }
-    s.turn++; setTurn(s); s.history.push('Founder: ' + text);
+    if (/^\/?idea\b/i.test(text) && !only) { await pitchIdea(s); return; }
+    s.turn++; setTurn(s); s.history.push(only ? `Founder (to ${only}): ${text}` : 'Founder: ' + text);
     if (s.title === 'New boardroom') s.title = text.length > 48 ? text.slice(0, 48) + '…' : text;
-    logEntry(s, `<b>You</b>${esc(text)}`);
-    const { results, error } = await api('turn', { session_id: s.id, turn: s.turn, transcript: s.history.join('\n'), founder: text, agents: s.agents });
+    logEntry(s, `<b>You${only ? ' → ' + shortTitle(only) : ''}</b>${esc(text)}`);
+    const { results, error } = await api('turn', { session_id: s.id, turn: s.turn, transcript: s.history.join('\n'), founder: text, agents: s.agents, responders: only ? [only] : undefined });
     if (!results) { s.turn--; setTurn(s); s.history.pop(); throw new Error(error || 'server returned no results'); }
     for (const r of results) { // react simultaneously, then speak in turn
       setStance(s, r.agent, r.stance); s.events.push({ ...r, turn: s.turn, founder_quote: text });
-      logEntry(s, `<b>${r.agent} → ${esc(r.stance)} (${r.score}/10, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
+      logEntry(s, `<b>${who(r.agent)} → ${esc(r.stance)} (${r.score}/10, ${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
     }
     for (const r of results) s.history.push(`${r.agent}: ${r.reply}`);
     await save(s);
@@ -162,6 +182,22 @@ async function say() {
   } catch (e) { logEntry(s, `<b>Error</b>${esc(e.message || e)}`); await save(s); }
   finally { busy = false; if (live(s)) $('in').focus(); }
   if (live(s) && s.turn >= 6) verdict();
+}
+
+async function giveFloor(name) {
+  const s = S; if (!s || s.verdictHtml || !s.agents.includes(name)) return;
+  if (busy) { logEntry(s, '<b>Panel is still responding…</b>'); return; }
+  const text = $('in').value.trim();
+  if (text && !/^\/?idea\b/i.test(text)) return say(name); // typed message: ask this panelist directly
+  busy = true; // empty input: this panelist interrupts unprompted (unscored, not a founder turn)
+  try {
+    const r = await api('jumpin', { agents: s.agents, transcript: s.history.join('\n'), agent: name });
+    if (!r.reply) throw new Error(r.error || 'no reply');
+    setStance(s, name, r.stance); logEntry(s, `<b>${who(name)} takes the floor → ${esc(r.stance)} (${esc(r.topic)})</b>Why: ${esc(r.reason)}`);
+    s.history.push(`${name} (jumped in): ${r.reply}`); await save(s);
+    if (live(s)) await speakSeq(s, [{ name, text: r.reply }]);
+  } catch (e) { logEntry(s, `<b>Error</b>${esc(e.message || e)}`); await save(s); }
+  finally { busy = false; if (live(s)) $('in').focus(); }
 }
 
 function showVerdict(s) { $('vbody').innerHTML = s.verdictHtml + '<p><button id="vhome">Back to sessions</button> <button id="vclose" class="alt">Close</button></p>'; $('verdict').style.display = 'flex';
@@ -178,7 +214,7 @@ async function verdict() {
     let h = `<h2>${funded ? 'FUNDED' : 'PASS'} — ${total.toFixed(1)}/10</h2>`;
     for (const [a, es] of Object.entries(byAgent)) {
       const best = es.reduce((x, y) => y.score > x.score ? y : x), worst = es.reduce((x, y) => y.score < x.score ? y : x);
-      h += `<p><b>${a}</b>: avg ${avg(es).toFixed(1)}/10.<br>Best: “${esc(best.founder_quote)}” (${best.score}/10 — ${esc(best.reason)})<br>Worst: “${esc(worst.founder_quote)}” (${worst.score}/10 — ${esc(worst.reason)})</p>`;
+      h += `<p><b>${who(a)}</b>: avg ${avg(es).toFixed(1)}/10.<br>Best: “${esc(best.founder_quote)}” (${best.score}/10 — ${esc(best.reason)})<br>Worst: “${esc(worst.founder_quote)}” (${worst.score}/10 — ${esc(worst.reason)})</p>`;
     }
     if (memory?.length) h += `<h3>Bruin memory (all sessions)</h3>` + memory.map(m => `<p>${esc(m.topic)}: avg ${m.avg}/10 — “${esc(m.quote)}”</p>`).join('');
     s.verdictHtml = h; s.funded = funded; s.score = Number(total.toFixed(1)); await save(s);
@@ -238,7 +274,7 @@ function route() {
   if (m) openSession(m[1], picked.length >= LIMITS.min ? picked : null); else if (location.hash === '#/new') showPick(); else showHome();
 }
 
-$('go').onclick = say; $('end').onclick = verdict; $('back').onclick = () => { location.hash = '#/'; };
+$('go').onclick = () => say(); $('end').onclick = verdict; $('back').onclick = () => { location.hash = '#/'; };
 $('in').addEventListener('keydown', (e) => { if (e.key === 'Enter') say(); });
 addEventListener('hashchange', route);
 try {

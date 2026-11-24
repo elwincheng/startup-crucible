@@ -172,21 +172,35 @@ const roster = (list) => list.map(n => `- ${n}: ${AGENTS[n]}`).join('\n');
 const cut = (t, open, close) => JSON.parse(t.slice(t.indexOf(open), t.lastIndexOf(close) + 1));
 
 // One call per turn returns all four reactions to the founder.
-async function panelTurn(list, transcript, founder, mem) {
-  if (!client) return { ok: true, results: list.map(agent => { const score = 3 + Math.floor(Math.random() * 6);
+async function panelTurn(list, transcript, founder, mem, who = list) { // who: panelists that reply (default: everyone)
+  if (!client) return { ok: true, results: who.map(agent => { const score = 3 + Math.floor(Math.random() * 6);
     return { agent, reply: `(${agent}) Be more specific about that.`, topic: TOPICS[Math.floor(Math.random() * TOPICS.length)], stance: score > 5 ? 'warming' : 'skeptical', score, reason: 'offline mock' }; }) };
   const system = `You play a startup investor panel of ${list.length} distinct characters. Never claim to be a real person.
 ${roster(list)}
 ${memText(mem)}
-Each character reacts to the founder's latest message in their own voice, and may reference what another panelist said. Reply ONLY with a JSON array of ${list.length} objects, one per character in this order: ${list.join(', ')}.
+Each replying character reacts to the founder's latest message in their own voice, and may reference what another panelist said.${who.length < list.length ? ` Only ${who.join(', ')} reply; the other panelists stay silent. If the founder addressed someone directly, answer as that person.` : ''} Reply ONLY with a JSON array of ${who.length} objects, one per character in this order: ${who.join(', ')}.
 Each object: {"agent":"<name>","reply":"<=2 sentences, in character, challenge a specific claim","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","score":<0-10 rating of the founder's latest answer>,"reason":"one sentence citing what the founder said"}`;
   const out = await gemini(system, `Transcript so far:\n${transcript}\n\nFounder's latest: "${founder}"`, (t) => {
     const arr = cut(t, '[', ']');
-    const results = list.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
-    if (results.length !== list.length) throw new Error('incomplete panel response');
+    const results = who.map(agent => arr.find(x => x.agent === agent)).filter(Boolean).map(x => ({ ...x, score: Number(x.score) }));
+    if (results.length !== who.length) throw new Error('incomplete panel response');
     return results;
   });
   return out.ok ? { ok: true, results: out.value } : out;
+}
+
+// Click-to-speak with an empty input: one panelist interrupts unprompted (unscored, not a founder turn).
+async function jumpIn(list, transcript, agent, mem) {
+  if (!client) return { ok: true, reply: `(${agent}) Let me jump in here.`, topic: 'vision', stance: 'neutral', reason: 'offline mock' };
+  const system = `You play ${agent}, ${AGENTS[agent]} You sit on a startup investor panel with:
+${roster(list)}
+${memText(mem)}
+You take the floor unprompted: challenge a specific claim from the transcript, or push back on another panelist, in your own voice. If nobody has spoken yet, ask the founder to pitch. Never claim to be a real person.
+Reply ONLY with JSON: {"reply":"<=2 sentences, in character","topic":"one of ${TOPICS.join('|')}","stance":"skeptical|neutral|warming|sold","reason":"one sentence on what prompted you, citing the transcript"}`;
+  const out = await gemini(system, `Transcript so far:\n${transcript || '(nobody has spoken yet)'}`, (t) => {
+    const j = cut(t, '{', '}'); if (!j.reply) throw new Error('empty reply'); return j;
+  }, 1024);
+  return out.ok ? { ok: true, ...out.value } : out;
 }
 
 // "idea": one panelist pitches an idea / societal problem fitting their persona; the other three debate it.
@@ -216,10 +230,11 @@ http.createServer(async (req, res) => {
   try {
     if (req.url === '/api/start') return send(res, { agents: Object.keys(AGENTS), roster: Object.entries(META).map(([name, m]) => ({ name, ...m })), min: MIN_PANEL, max: MAX_PANEL, defaults: DEFAULT_PANEL, memory: memory() });
     if (req.url === '/api/turn') {
-      const { session_id, turn, transcript, founder, agents } = await body(req);
+      const { session_id, turn, transcript, founder, agents, responders } = await body(req);
       const list = panelOf(agents);
+      const who = Array.isArray(responders) ? list.filter(n => responders.includes(n)) : list; // directed question: only these reply
       const mem = memory();
-      const out = await panelTurn(list, transcript, founder, mem);
+      const out = await panelTurn(list, transcript, founder, mem, who.length ? who : list);
       if (!out.ok) return send(res, { error: `The panel could not respond (${out.error}). Try again in a moment.` }, 503);
       const { results } = out; // only real model output reaches the Bruin event log
       for (const r of results) log({ session_id, ts: new Date().toISOString().replace('T', ' ').slice(0, 19), turn, agent: r.agent, topic: r.topic, stance: r.stance, score: r.score, founder_quote: founder, reason: r.reason });
@@ -239,6 +254,13 @@ http.createServer(async (req, res) => {
     if (req.url === '/api/session/get') { const { id } = await body(req); const x = readSession(id); return x ? send(res, { session: x }) : send(res, { error: 'not found' }, 404); }
     if (req.url === '/api/session/save') { const { session } = await body(req); fs.writeFileSync(sid(session.id), JSON.stringify(session)); return send(res, { ok: true }); }
     if (req.url === '/api/session/delete') { const { id } = await body(req); try { fs.unlinkSync(sid(id)); } catch {} return send(res, { ok: true }); }
+    if (req.url === '/api/jumpin') {
+      const { agents, transcript, agent } = await body(req);
+      const list = panelOf(agents); if (!list.includes(agent)) return send(res, { error: 'that archetype is not on this panel' }, 400);
+      const out = await jumpIn(list, transcript, agent, memory());
+      if (!out.ok) return send(res, { error: `${agent} could not speak (${out.error}). Try again in a moment.` }, 503);
+      return send(res, out); // unprompted interjections are not founder performance: not written to the Bruin event log
+    }
     if (req.url === '/api/idea') {
       const { transcript, last, agents } = await body(req);
       const list = panelOf(agents);

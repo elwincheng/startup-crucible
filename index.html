@@ -15,6 +15,7 @@ button.alt{background:#2a2f3a}
 .bub{position:fixed;max-width:240px;padding:8px 10px;border-radius:10px;background:#fff;color:#111;font-size:12px;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .2s}
 .bub.on{opacity:1}
 #verdict{position:fixed;inset:0;background:#000d;display:none;align-items:center;justify-content:center}
+#verdict i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 #verdict>div{background:#12151c;padding:24px;border-radius:12px;max-width:640px;max-height:80vh;overflow:auto}
 body.home #hud,body.home #log,body.home #bar{display:none}
 #home{position:fixed;inset:0;display:none;overflow:auto;background:#0b0d12e8;padding:48px 24px}
@@ -44,11 +45,15 @@ body.pick #pick{display:block}
 #pickbar{position:sticky;bottom:0;margin-top:24px;padding:14px 0;background:#0b0d12f2;display:flex;gap:12px;align-items:center}
 #pickbar .n{color:#8a93a6;flex:1}button:disabled{opacity:.4;cursor:not-allowed}
 body.pick #hud,body.pick #log,body.pick #bar{display:none}
+.tag{position:fixed;transform:translate(-50%,-100%);padding:3px 9px;border-radius:999px;background:#12151cdd;border:1px solid #2a2f3a;font-size:11px;font-weight:600;pointer-events:none;white-space:nowrap;transition:border-color .2s,background .2s}
+.tag.on{border-color:#fff;background:#26304a}
+.tag i,.e i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+body.home .tag,body.pick .tag{display:none}
 </style></head><body>
 <canvas id="c"></canvas>
 <div id="home"><div class="wrap"><h1>Startup Crucible</h1><div class="sub">Your boardroom sessions. Each one is a separate pitch in front of the panel.</div><div id="grid"></div></div></div>
 <div id="pick"><div class="wrap"><h1>Assemble your boardroom</h1><div class="sub" style="color:#8a93a6">Choose who sits across the table. Pick at least 3 (max 5).</div><div id="pickgrid"></div><div id="pickbar"><button id="pickback" class="alt">← Cancel</button><span class="n" id="pickn"></span><button id="pickgo">Enter boardroom →</button></div></div></div>
-<div id="hud"><button id="back">← Sessions</button><span>Pitch your startup idea, or type <b>idea</b> and a panelist will pitch one for the room to debate. Turn <span id="t">0</span>/6</span></div>
+<div id="hud"><button id="back">← Sessions</button><span>Pitch your startup idea, or type <b>idea</b> and a panelist will pitch one for the room to debate. <b>Click an avatar</b> to ask them directly (type first) or let them jump in (empty box). Turn <span id="t">0</span>/6</span></div>
 <div id="log"><h3>Decision log</h3></div>
 <div id="bar"><input id="in" placeholder="Your pitch / answer…" autofocus><button id="go">Say</button><button id="end" class="alt">End & verdict</button></div>
 <div id="verdict"><div id="vbody"></div></div>
